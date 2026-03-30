@@ -14,41 +14,6 @@ export default function GameCanvas() {
 
     gameRef.current.innerHTML = "";
 
-    /* ---------------- MOBILE WARNING OVERLAY ---------------- */
-    const mobileOverlay = document.createElement("div");
-    mobileOverlay.id = "mobileWarning";
-    mobileOverlay.style.position = "absolute";
-    mobileOverlay.style.top = "0";
-    mobileOverlay.style.left = "0";
-    mobileOverlay.style.width = "100%";
-    mobileOverlay.style.height = "100%";
-    mobileOverlay.style.backgroundColor = "#5FA8C9";
-    mobileOverlay.style.color = "#ffffff";
-    mobileOverlay.style.fontFamily = "Comic Sans MS";
-    mobileOverlay.style.fontWeight = "bold";
-    mobileOverlay.style.fontSize = "24px";
-    mobileOverlay.style.display = "none";
-    mobileOverlay.style.alignItems = "center";
-    mobileOverlay.style.justifyContent = "center";
-    mobileOverlay.style.textAlign = "center";
-    mobileOverlay.style.zIndex = "9999";
-    mobileOverlay.style.padding = "20px";
-    mobileOverlay.style.pointerEvents = "none";
-    mobileOverlay.innerText = "Tap left/right to move. Double tap to jump.";
-
-    gameRef.current.appendChild(mobileOverlay);
-
-    function isMobileScreen() {
-      return window.innerWidth < 768;
-    }
-
-    function checkScreen() {
-      mobileOverlay.style.display = isMobileScreen() ? "flex" : "none";
-    }
-
-    checkScreen();
-    window.addEventListener("resize", checkScreen);
-
     /* ---------------- LOADING SCENE ---------------- */
     class LoadingScene extends Phaser.Scene {
       loadStartTime = 0;
@@ -174,6 +139,7 @@ export default function GameCanvas() {
       touchMoveDirection: -1 | 0 | 1 = 0;
       lastTapTime = 0;
       touchDeadZone = 0.12;
+      mobileHint?: HTMLDivElement;
 
       constructor() {
         super("GameScene");
@@ -202,6 +168,41 @@ export default function GameCanvas() {
           this.jumpSpeed = 520;
           this.playerFootOffset = 6;
         }
+      }
+
+      showMobileHint() {
+        if (!this.isMobile || !gameRef.current) return;
+
+        if (this.mobileHint) {
+          this.mobileHint.remove();
+          this.mobileHint = undefined;
+        }
+
+        const hint = document.createElement("div");
+        hint.style.position = "absolute";
+        hint.style.top = "10px";
+        hint.style.left = "50%";
+        hint.style.transform = "translateX(-50%)";
+        hint.style.padding = "8px 12px";
+        hint.style.background = "rgba(0,0,0,0.35)";
+        hint.style.color = "#fff";
+        hint.style.borderRadius = "12px";
+        hint.style.fontFamily = "Comic Sans MS";
+        hint.style.fontSize = "14px";
+        hint.style.zIndex = "20";
+        hint.style.pointerEvents = "none";
+        hint.style.whiteSpace = "nowrap";
+        hint.innerText = "Tap left/right to move • Double tap to jump";
+
+        gameRef.current.appendChild(hint);
+        this.mobileHint = hint;
+
+        window.setTimeout(() => {
+          if (this.mobileHint === hint) {
+            hint.remove();
+            this.mobileHint = undefined;
+          }
+        }, 2500);
       }
 
       refreshResponsiveLayout() {
@@ -434,6 +435,7 @@ export default function GameCanvas() {
         });
 
         this.refreshResponsiveLayout();
+        this.showMobileHint();
       }
 
       syncVisualPlayer() {
@@ -570,8 +572,6 @@ export default function GameCanvas() {
     phaserInstance.current = new Phaser.Game(config);
 
     return () => {
-      window.removeEventListener("resize", checkScreen);
-
       if (phaserInstance.current) {
         phaserInstance.current.destroy(true);
         phaserInstance.current = null;
