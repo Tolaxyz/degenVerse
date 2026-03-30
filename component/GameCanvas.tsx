@@ -5,9 +5,14 @@ import Phaser from "phaser";
 
 export default function GameCanvas() {
   const gameRef = useRef<HTMLDivElement>(null);
+  const phaserInstance = useRef<Phaser.Game | null>(null);
+  const initializedRef = useRef(false);
 
   useEffect(() => {
-    if (!gameRef.current) return;
+    if (!gameRef.current || initializedRef.current) return;
+    initializedRef.current = true;
+
+    gameRef.current.innerHTML = "";
 
     /* ---------------- MOBILE WARNING OVERLAY ---------------- */
     const mobileOverlay = document.createElement("div");
@@ -17,7 +22,7 @@ export default function GameCanvas() {
     mobileOverlay.style.left = "0";
     mobileOverlay.style.width = "100%";
     mobileOverlay.style.height = "100%";
-    mobileOverlay.style.backgroundColor = "#9FBF6D";
+    mobileOverlay.style.backgroundColor = "#5FA8C9";
     mobileOverlay.style.color = "#ffffff";
     mobileOverlay.style.fontFamily = "Comic Sans MS";
     mobileOverlay.style.fontWeight = "bold";
@@ -31,15 +36,10 @@ export default function GameCanvas() {
     mobileOverlay.innerText =
       "For a better experience, switch to a larger screen";
 
-    if (gameRef.current) gameRef.current.appendChild(mobileOverlay);
+    gameRef.current.appendChild(mobileOverlay);
 
     function checkScreen() {
-      if (!mobileOverlay) return;
-      if (window.innerWidth < 768) {
-        mobileOverlay.style.display = "flex";
-      } else {
-        mobileOverlay.style.display = "none";
-      }
+      mobileOverlay.style.display = window.innerWidth < 768 ? "flex" : "none";
     }
 
     checkScreen();
@@ -47,7 +47,7 @@ export default function GameCanvas() {
 
     /* ---------------- LOADING SCENE ---------------- */
     class LoadingScene extends Phaser.Scene {
-      loadStartTime: number = 0;
+      loadStartTime = 0;
 
       constructor() {
         super("LoadingScene");
@@ -57,11 +57,10 @@ export default function GameCanvas() {
         const width = this.cameras.main.width;
         const height = this.cameras.main.height;
 
-        this.cameras.main.setBackgroundColor("#9FBF6D");
+        this.cameras.main.setBackgroundColor("#5FA8C9");
 
-        /* -------- BIG TITLE -------- */
         const title = this.add
-          .text(width / 2, height / 2 - 140, "Welcome to Goblynz", {
+          .text(width / 2, height / 2 - 140, "Welcome to The lIttLe GuYs", {
             fontFamily: "Comic Sans MS",
             fontSize: "72px",
             color: "#ffffff",
@@ -71,7 +70,6 @@ export default function GameCanvas() {
           })
           .setOrigin(0.5);
 
-        /* -------- FLOATING ANIMATION -------- */
         this.tweens.add({
           targets: title,
           y: title.y - 25,
@@ -81,17 +79,6 @@ export default function GameCanvas() {
           ease: "Sine.easeInOut",
         });
 
-        /* -------- BREATHING SCALE ANIMATION -------- */
-        this.tweens.add({
-          targets: title,
-          scale: 1.05,
-          duration: 3000,
-          yoyo: true,
-          repeat: -1,
-          ease: "Sine.easeInOut",
-        });
-
-        /* -------- BOUNCING BALL -------- */
         const ball = this.add.circle(width / 2, height / 2 + 60, 40, 0xffffff);
 
         this.tweens.add({
@@ -103,7 +90,6 @@ export default function GameCanvas() {
           repeat: -1,
         });
 
-        /* -------- LOADING BAR -------- */
         const progressBox = this.add.graphics();
         progressBox.fillStyle(0xffffff, 0.2);
         progressBox.fillRoundedRect(
@@ -128,7 +114,6 @@ export default function GameCanvas() {
           );
         });
 
-        /* -------- CUSTOM ASSETS -------- */
         this.load.image("player", "/player.png");
         this.load.image("player_jump", "/player_jump.png");
         this.load.image("coin", "/coin.png");
@@ -143,8 +128,7 @@ export default function GameCanvas() {
 
       create() {
         const elapsed = this.time.now - this.loadStartTime;
-
-        const minTime = Phaser.Math.Between(10000, 15000); // 4–5 seconds
+        const minTime = 2000;
         const remaining = Math.max(minTime - elapsed, 0);
 
         this.time.delayedCall(remaining, () => {
@@ -155,16 +139,21 @@ export default function GameCanvas() {
 
     /* ---------------- GAME SCENE ---------------- */
     class GameScene extends Phaser.Scene {
-      player: any;
-      cursors: any;
-      coins: any;
-      enemies: any;
+      playerBody!: Phaser.Physics.Arcade.Sprite;
+      playerWalkSprite!: Phaser.GameObjects.Image;
+      playerJumpSprite!: Phaser.GameObjects.Image;
+      cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+      coins!: Phaser.Physics.Arcade.Group;
+      enemies!: Phaser.Physics.Arcade.Group;
       score = 0;
-      scoreText: any;
+      scoreText!: Phaser.GameObjects.Text;
       isGameOver = false;
-
       basePlayerWidth = 60;
       basePlayerHeight = 80;
+      currentVisualState: "walk" | "jump" = "walk";
+
+      // Tweak this single value if your PNG has a little transparent padding
+      playerFootOffset = 6;
 
       constructor() {
         super("GameScene");
@@ -172,10 +161,14 @@ export default function GameCanvas() {
 
       create() {
         this.isGameOver = false;
+        this.score = 0;
+        this.currentVisualState = "walk";
+
         this.physics.resume();
         this.physics.world.setBounds(0, 0, 4000, 800);
 
         const platforms = this.physics.add.staticGroup();
+
         for (let i = 0; i < 20; i++) {
           platforms
             .create(i * 200, 760, "ground")
@@ -189,66 +182,11 @@ export default function GameCanvas() {
         platforms.create(1800, 550, "ground");
         platforms.create(2300, 600, "ground");
 
-        this.player = this.physics.add.sprite(200, 400, "player");
-        this.player.setDisplaySize(this.basePlayerWidth, this.basePlayerHeight);
-        this.player.setBounce(0.1);
-        this.player.setCollideWorldBounds(true);
-
-        this.physics.add.collider(this.player, platforms);
-
-        this.cursors = this.input.keyboard!.createCursorKeys();
-
-        this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
-        this.cameras.main.setBounds(0, 0, 4000, 800);
-
-        this.coins = this.physics.add.group();
-        for (let i = 0; i < 25; i++) {
-          const coin = this.coins.create(
-            Phaser.Math.Between(200, 3800),
-            0,
-            "coin",
-          );
-          coin.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
-          coin.setScale(0.3);
-        }
-        this.physics.add.collider(this.coins, platforms);
-        this.physics.add.overlap(
-          this.player,
-          this.coins,
-          this.collectCoin,
-          undefined,
-          this,
-        );
-
-        this.enemies = this.physics.add.group();
-        for (let i = 0; i < 8; i++) {
-          const enemy = this.enemies.create(600 + i * 400, 200, "enemy");
-          enemy.setBounce(1);
-          enemy.setCollideWorldBounds(true);
-          enemy.setVelocityX(Phaser.Math.Between(-120, 120));
-          enemy.setScale(0.4);
-        }
-        this.physics.add.collider(this.enemies, platforms);
-        this.physics.add.collider(
-          this.player,
-          this.enemies,
-          this.hitEnemy,
-          undefined,
-          this,
-        );
-
-        this.scoreText = this.add
-          .text(20, 20, "Score: 0", {
-            fontFamily: "Comic Sans MS",
-            fontSize: "26px",
-            color: "#ffffff",
-          })
-          .setScrollFactor(0);
-
         const centerX = this.cameras.main.width / 2;
         const centerY = this.cameras.main.height / 2;
+
         const floatingText = this.add
-          .text(centerX, centerY, "GOBLYNZ", {
+          .text(centerX, centerY, "tHe lIttLe gUys", {
             fontFamily: "Comic Sans MS",
             fontSize: "64px",
             fontStyle: "bold",
@@ -267,13 +205,126 @@ export default function GameCanvas() {
           ease: "Sine.easeInOut",
         });
 
-        if (mobileOverlay) mobileOverlay.style.display = "none";
+        // Invisible physics body
+        this.playerBody = this.physics.add.sprite(200, 400, "player");
+        this.playerBody.setVisible(false);
+        this.playerBody.setBounce(0.1);
+        this.playerBody.setCollideWorldBounds(true);
+
+        // Body size tuned separately from visual size
+        this.playerBody.setSize(36, 64);
+        this.playerBody.setOffset(
+          (this.playerBody.width - 36) / 2,
+          this.playerBody.height - 64,
+        );
+
+        // Walking visual
+        this.playerWalkSprite = this.add.image(200, 400, "player");
+        this.playerWalkSprite.setDisplaySize(
+          this.basePlayerWidth,
+          this.basePlayerHeight,
+        );
+        this.playerWalkSprite.setOrigin(0.5, 1);
+
+        // Jumping visual
+        this.playerJumpSprite = this.add.image(200, 400, "player_jump");
+        this.playerJumpSprite.setDisplaySize(
+          this.basePlayerWidth,
+          this.basePlayerHeight,
+        );
+        this.playerJumpSprite.setOrigin(0.5, 1);
+        this.playerJumpSprite.setVisible(false);
+
+        this.physics.add.collider(this.playerBody, platforms);
+
+        this.cursors = this.input.keyboard!.createCursorKeys();
+
+        this.cameras.main.startFollow(this.playerBody, true, 0.08, 0.08);
+        this.cameras.main.setBounds(0, 0, 4000, 800);
+
+        this.coins = this.physics.add.group();
+
+        for (let i = 0; i < 25; i++) {
+          const coin = this.coins.create(
+            Phaser.Math.Between(200, 3800),
+            0,
+            "coin",
+          );
+          coin.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
+          coin.setScale(0.3);
+        }
+
+        this.physics.add.collider(this.coins, platforms);
+
+        this.physics.add.overlap(
+          this.playerBody,
+          this.coins,
+          (_player, coin) => {
+            coin.disableBody(true, true);
+            this.score += 10;
+            this.scoreText.setText("Score: " + this.score);
+          },
+          undefined,
+          this,
+        );
+
+        this.enemies = this.physics.add.group();
+
+        for (let i = 0; i < 8; i++) {
+          const enemy = this.enemies.create(600 + i * 400, 200, "enemy");
+          enemy.setBounce(1);
+          enemy.setCollideWorldBounds(true);
+          enemy.setVelocityX(Phaser.Math.Between(-120, 120));
+          enemy.setScale(0.4);
+        }
+
+        this.physics.add.collider(this.enemies, platforms);
+        this.physics.add.collider(
+          this.playerBody,
+          this.enemies,
+          this.hitEnemy,
+          undefined,
+          this,
+        );
+
+        this.scoreText = this.add
+          .text(20, 20, "Score: 0", {
+            fontFamily: "Comic Sans MS",
+            fontSize: "26px",
+            color: "#ffffff",
+          })
+          .setScrollFactor(0);
       }
 
-      collectCoin(player: any, coin: any) {
-        coin.disableBody(true, true);
-        this.score += 10;
-        this.scoreText.setText("Score: " + this.score);
+      syncVisualPlayer() {
+        const body = this.playerBody.body as Phaser.Physics.Arcade.Body;
+        const footX = body.center.x;
+        const footY = body.bottom + this.playerFootOffset;
+        const flipX = this.playerBody.flipX;
+        const rotation = this.playerBody.rotation;
+
+        this.playerWalkSprite.setPosition(footX, footY);
+        this.playerJumpSprite.setPosition(footX, footY);
+
+        this.playerWalkSprite.setFlipX(flipX);
+        this.playerJumpSprite.setFlipX(flipX);
+
+        this.playerWalkSprite.setRotation(rotation);
+        this.playerJumpSprite.setRotation(rotation);
+      }
+
+      setPlayerVisualState(nextState: "walk" | "jump") {
+        if (this.currentVisualState === nextState) return;
+
+        this.currentVisualState = nextState;
+
+        if (nextState === "walk") {
+          this.playerWalkSprite.setVisible(true);
+          this.playerJumpSprite.setVisible(false);
+        } else {
+          this.playerWalkSprite.setVisible(false);
+          this.playerJumpSprite.setVisible(true);
+        }
       }
 
       hitEnemy() {
@@ -291,10 +342,11 @@ export default function GameCanvas() {
             fontSize: "64px",
             color: "#ffffff",
           })
-          .setOrigin(0.5);
+          .setOrigin(0.5)
+          .setScrollFactor(0);
 
         const button = this.add
-          .rectangle(centerX, centerY + 20, 240, 80, 0x9fbf6d, 1)
+          .rectangle(centerX, centerY + 20, 240, 80, 0x5fa8c9, 1)
           .setStrokeStyle(4, 0xffffff)
           .setOrigin(0.5)
           .setInteractive({ useHandCursor: true })
@@ -310,50 +362,45 @@ export default function GameCanvas() {
           .setOrigin(0.5)
           .setScrollFactor(0);
 
-        button.on("pointerover", () => button.setFillStyle(0xe6b3a));
-        button.on("pointerout", () => button.setFillStyle(0x9fbf6d));
         button.on("pointerdown", () => this.scene.restart());
       }
 
       update() {
         if (this.isGameOver) return;
 
-        const speed = 260;
-        const tiltAmplitude = 0.15;
-        const tiltFrequency = 0.005;
-
         if (this.cursors.left.isDown) {
-          this.player.setVelocityX(-speed);
-          this.player.setFlipX(true);
-          this.player.rotation =
-            tiltAmplitude * Math.sin(this.time.now * tiltFrequency);
+          this.playerBody.setVelocityX(-260);
+          this.playerBody.setFlipX(true);
+          this.playerBody.rotation = 0.15 * Math.sin(this.time.now * 0.005);
         } else if (this.cursors.right.isDown) {
-          this.player.setVelocityX(speed);
-          this.player.setFlipX(false);
-          this.player.rotation =
-            tiltAmplitude * Math.sin(this.time.now * tiltFrequency);
+          this.playerBody.setVelocityX(260);
+          this.playerBody.setFlipX(false);
+          this.playerBody.rotation = 0.15 * Math.sin(this.time.now * 0.005);
         } else {
-          this.player.setVelocityX(0);
-          this.player.rotation = Phaser.Math.Linear(
-            this.player.rotation,
+          this.playerBody.setVelocityX(0);
+          this.playerBody.rotation = Phaser.Math.Linear(
+            this.playerBody.rotation,
             0,
             0.15,
           );
         }
 
-        if (this.cursors.up.isDown && this.player.body.touching.down) {
-          this.player.setVelocityY(-520);
+        if (
+          this.cursors.up.isDown &&
+          ((this.playerBody.body as Phaser.Physics.Arcade.Body).blocked.down ||
+            (this.playerBody.body as Phaser.Physics.Arcade.Body).touching.down)
+        ) {
+          this.playerBody.setVelocityY(-520);
         }
 
-        if (!this.player.body.touching.down) {
-          this.player.setTexture("player_jump");
-        } else {
-          this.player.setTexture("player");
-        }
+        const body = this.playerBody.body as Phaser.Physics.Arcade.Body;
+        const isGrounded = body.blocked.down || body.touching.down;
+
+        this.setPlayerVisualState(isGrounded ? "walk" : "jump");
+        this.syncVisualPlayer();
       }
     }
 
-    /* ---------------- GAME CONFIG ---------------- */
     const config: Phaser.Types.Core.GameConfig = {
       type: Phaser.AUTO,
       width: window.innerWidth,
@@ -366,17 +413,33 @@ export default function GameCanvas() {
         },
       },
       scene: [LoadingScene, GameScene],
-      backgroundColor: "#9FBF6D",
-      scale: { mode: Phaser.Scale.RESIZE },
+      backgroundColor: "#5FA8C9",
+      transparent: false,
+      clearBeforeRender: true,
     };
 
-    const game = new Phaser.Game(config);
+    phaserInstance.current = new Phaser.Game(config);
 
     return () => {
-      game.destroy(true);
       window.removeEventListener("resize", checkScreen);
+
+      if (phaserInstance.current) {
+        phaserInstance.current.destroy(true);
+        phaserInstance.current = null;
+      }
+
+      if (gameRef.current) {
+        gameRef.current.innerHTML = "";
+      }
+
+      initializedRef.current = false;
     };
   }, []);
 
-  return <div ref={gameRef} style={{ position: "relative" }} />;
+  return (
+    <div
+      ref={gameRef}
+      style={{ position: "relative", width: "100%", height: "100vh" }}
+    />
+  );
 }
