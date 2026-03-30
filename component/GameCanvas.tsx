@@ -260,7 +260,8 @@ export default function GameCanvas() {
           this.playerBody,
           this.coins,
           (_player, coin) => {
-            coin.disableBody(true, true);
+            const collectedCoin = coin as Phaser.Physics.Arcade.Sprite;
+            collectedCoin.disableBody(true, true);
             this.score += 10;
             this.scoreText.setText("Score: " + this.score);
           },
